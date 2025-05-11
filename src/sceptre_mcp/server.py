@@ -18,54 +18,63 @@ class SceptreMCPServer:
         self.project_path = project_path or os.getcwd()
         self.server = FastMCP("SceptreMCP")
         
-        # Register a single tool that can handle any Sceptre command
-        self.server.tool(name="run_sceptre", description="Run any Sceptre command")(self.run_sceptre)
+        # Define and register the tools and resources directly in __init__
         
-        # Templates and outputs as resources
-        self.server.resource(uri="stack://{stack_path}/template")(self.get_template)
-        self.server.resource(uri="stack://{stack_path}/outputs")(self.get_outputs)
-    
-    async def run_sceptre(self, command: str, args: Optional[List[str]] = None) -> Any:
-        """
-        Run any Sceptre CLI command.
-        
-        Args:
-            command: The Sceptre command (e.g., "list stacks")
-            args: Optional list of additional arguments
-        """
-        args = args or []
-        env = os.environ.copy()
-        env["SCEPTRE_PROJECT_PATH"] = self.project_path
-        
-        # Build command
-        full_cmd = ["sceptre"] + command.split() + args
-        
-        try:
-            # Run command
-            result = subprocess.run(
-                full_cmd,
-                env=env,
-                check=True,
-                capture_output=True,
-                text=True
-            )
+        @self.server.tool(name="run_sceptre", description="Run any Sceptre command")
+        async def run_sceptre(command: str, args: Optional[List[str]] = None) -> Any:
+            """
+            Run any Sceptre CLI command.
             
-            # Try to parse JSON, fall back to text
+            Args:
+                command: The Sceptre command (e.g., "list stacks")
+                args: Optional list of additional arguments
+            """
+            args = args or []
+            env = os.environ.copy()
+            env["SCEPTRE_PROJECT_PATH"] = self.project_path
+            
+            # Build command
+            full_cmd = ["sceptre"] + command.split() + args
+            
             try:
-                return json.loads(result.stdout)
-            except json.JSONDecodeError:
-                return result.stdout.strip()
+                # Run command
+                result = subprocess.run(
+                    full_cmd,
+                    env=env,
+                    check=True,
+                    capture_output=True,
+                    text=True
+                )
                 
-        except subprocess.CalledProcessError as e:
-            return {"error": e.stderr.strip() or str(e)}
-    
-    async def get_template(self, stack_path: str) -> Dict[str, Any]:
-        """Get template for a stack."""
-        return await self.run_sceptre("dump template", [stack_path, "--output", "json"])
-    
-    async def get_outputs(self, stack_path: str) -> Dict[str, Any]:
-        """Get outputs for a stack."""
-        return await self.run_sceptre("list outputs", [stack_path, "--output", "json"])
+                # Try to parse JSON, fall back to text
+                try:
+                    return json.loads(result.stdout)
+                except json.JSONDecodeError:
+                    return result.stdout.strip()
+                    
+            except subprocess.CalledProcessError as e:
+                return {"error": e.stderr.strip() or str(e)}
+        
+        # Assign to instance variable to keep reference
+        self._run_sceptre = run_sceptre
+        
+        @self.server.resource(uri="stack://{stack_path}/template")
+        async def get_template(stack_path: str) -> Dict[str, Any]:
+            """Get template for a stack."""
+            args = [stack_path, "--output", "json"]
+            return await run_sceptre("dump template", args)
+        
+        # Assign to instance variable
+        self._get_template = get_template
+        
+        @self.server.resource(uri="stack://{stack_path}/outputs")
+        async def get_outputs(stack_path: str) -> Dict[str, Any]:
+            """Get outputs for a stack."""
+            args = [stack_path, "--output", "json"]
+            return await run_sceptre("list outputs", args)
+        
+        # Assign to instance variable
+        self._get_outputs = get_outputs
     
     def run(self, **kwargs):
         """Run the server."""

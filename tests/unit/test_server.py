@@ -15,17 +15,24 @@ class TestSceptreMCPServer:
     @pytest.fixture
     def server(self):
         """Create a server instance for testing."""
-        return SceptreMCPServer(project_path="/fake/project/path")
+        # Mock subprocess.run within the server initialization
+        with patch('subprocess.run') as mock_run:
+            mock_process = MagicMock()
+            mock_process.stdout = '{"test": "result"}'
+            mock_run.return_value = mock_process
+            
+            server = SceptreMCPServer(project_path="/fake/project/path")
+            return server
     
     @pytest.mark.asyncio
     async def test_run_sceptre(self, server):
-        """Test that run_sceptre calls the sceptre CLI properly."""
-        # Mock subprocess.run
+        """Test that the _run_sceptre function calls the sceptre CLI properly."""
+        # Mock subprocess.run for this specific test
         mock_process = MagicMock()
         mock_process.stdout = '{"test": "result"}'
         
         with patch('subprocess.run', return_value=mock_process) as mock_run:
-            result = await server.run_sceptre("list stacks", ["--output", "json"])
+            result = await server._run_sceptre("list stacks", ["--output", "json"])
             
             # Check the command was built and executed correctly
             mock_run.assert_called_once()
@@ -48,8 +55,9 @@ class TestSceptreMCPServer:
     @pytest.mark.asyncio
     async def test_get_template(self, server):
         """Test that get_template calls run_sceptre with correct args."""
-        with patch.object(server, 'run_sceptre') as mock_run_sceptre:
-            await server.get_template("dev/network/vpc.yaml")
+        with patch.object(server, '_run_sceptre') as mock_run_sceptre:
+            mock_run_sceptre.return_value = {"Resources": {}}
+            await server._get_template("dev/network/vpc.yaml")
             mock_run_sceptre.assert_called_once_with(
                 "dump template", 
                 ["dev/network/vpc.yaml", "--output", "json"]
@@ -58,8 +66,9 @@ class TestSceptreMCPServer:
     @pytest.mark.asyncio
     async def test_get_outputs(self, server):
         """Test that get_outputs calls run_sceptre with correct args."""
-        with patch.object(server, 'run_sceptre') as mock_run_sceptre:
-            await server.get_outputs("dev/network/vpc.yaml")
+        with patch.object(server, '_run_sceptre') as mock_run_sceptre:
+            mock_run_sceptre.return_value = {"Outputs": {}}
+            await server._get_outputs("dev/network/vpc.yaml")
             mock_run_sceptre.assert_called_once_with(
                 "list outputs", 
                 ["dev/network/vpc.yaml", "--output", "json"]
@@ -72,7 +81,7 @@ class TestSceptreMCPServer:
         error = subprocess.CalledProcessError(1, ["sceptre"], stderr="Error message")
         
         with patch('subprocess.run', side_effect=error) as mock_run:
-            result = await server.run_sceptre("invalid command")
+            result = await server._run_sceptre("invalid command")
             
             # Check error was properly caught and formatted
             assert "error" in result
@@ -86,7 +95,7 @@ class TestSceptreMCPServer:
         mock_process.stdout = 'Not valid JSON'
         
         with patch('subprocess.run', return_value=mock_process) as mock_run:
-            result = await server.run_sceptre("list stacks", ["--output", "json"])
+            result = await server._run_sceptre("list stacks", ["--output", "json"])
             
             # Check result is raw output when JSON parsing fails
             assert result == "Not valid JSON"
