@@ -26,6 +26,9 @@ dependencies = [
     "boto3>=1.28.0",
 ]
 
+[project.scripts]
+sceptre-mcp = "sceptre_mcp.__main__:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",

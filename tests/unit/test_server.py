@@ -2,114 +2,91 @@
 Unit tests for the Sceptre MCP Server.
 """
 import pytest
-from fastmcp import Client
-from unittest.mock import Mock, patch
+from unittest.mock import patch, MagicMock, call
+import subprocess
+import json
+
+from sceptre_mcp.server import SceptreMCPServer
 
 
 class TestSceptreMCPServer:
     """Tests for the Sceptre MCP Server."""
-
+    
+    @pytest.fixture
+    def server(self):
+        """Create a server instance for testing."""
+        return SceptreMCPServer(project_path="/fake/project/path")
+    
     @pytest.mark.asyncio
-    async def test_server_initialization(self):
-        """Test that the server initializes correctly with a proper name and tools."""
-        # This will be implemented once we have the server module
-        pass
-
-    @pytest.mark.asyncio
-    async def test_list_stacks_tool(self):
-        """Test that the list_stacks tool returns the expected format."""
-        # Mock implementation until we have the real server
-        with patch("sceptre.context.SceptreContext") as mock_context_class:
-            mock_context = Mock()
-            mock_context_class.return_value = mock_context
-            mock_context.stacks = {
-                "stack1": Mock(name="stack1"),
-                "stack2": Mock(name="stack2"),
-            }
+    async def test_run_sceptre(self, server):
+        """Test that run_sceptre calls the sceptre CLI properly."""
+        # Mock subprocess.run
+        mock_process = MagicMock()
+        mock_process.stdout = '{"test": "result"}'
+        
+        with patch('subprocess.run', return_value=mock_process) as mock_run:
+            result = await server.run_sceptre("list stacks", ["--output", "json"])
             
-            # This will be implemented once we have the server and tool
-            pass
-
-    @pytest.mark.asyncio
-    async def test_get_stack_status_tool(self):
-        """Test that the get_stack_status tool returns the correct status."""
-        # Mock implementation until we have the real server
-        with patch("sceptre.context.SceptreContext") as mock_context_class:
-            mock_context = Mock()
-            mock_context_class.return_value = mock_context
-            mock_stack = Mock()
-            mock_stack.get_status.return_value = "CREATE_COMPLETE"
-            mock_context.stacks = {"stack1": mock_stack}
+            # Check the command was built and executed correctly
+            mock_run.assert_called_once()
+            args, kwargs = mock_run.call_args
             
-            # This will be implemented once we have the server and tool
-            pass
-
-    @pytest.mark.asyncio
-    async def test_create_stack_tool(self):
-        """Test that the create_stack tool creates a stack correctly."""
-        # Mock implementation until we have the real server
-        with patch("sceptre.context.SceptreContext") as mock_context_class:
-            mock_context = Mock()
-            mock_context_class.return_value = mock_context
-            mock_stack = Mock()
-            mock_stack.create.return_value = None
-            mock_context.stacks = {"stack1": mock_stack}
+            # Check command contains correct parts
+            assert args[0] == ["sceptre", "list", "stacks", "--output", "json"]
             
-            # This will be implemented once we have the server and tool
-            pass
-
-    @pytest.mark.asyncio
-    async def test_update_stack_tool(self):
-        """Test that the update_stack tool updates a stack correctly."""
-        # Mock implementation until we have the real server
-        with patch("sceptre.context.SceptreContext") as mock_context_class:
-            mock_context = Mock()
-            mock_context_class.return_value = mock_context
-            mock_stack = Mock()
-            mock_stack.update.return_value = None
-            mock_context.stacks = {"stack1": mock_stack}
+            # Check environment variables were set
+            assert kwargs['env']["SCEPTRE_PROJECT_PATH"] == "/fake/project/path"
             
-            # This will be implemented once we have the server and tool
-            pass
-
-    @pytest.mark.asyncio
-    async def test_delete_stack_tool(self):
-        """Test that the delete_stack tool deletes a stack correctly."""
-        # Mock implementation until we have the real server
-        with patch("sceptre.context.SceptreContext") as mock_context_class:
-            mock_context = Mock()
-            mock_context_class.return_value = mock_context
-            mock_stack = Mock()
-            mock_stack.delete.return_value = None
-            mock_context.stacks = {"stack1": mock_stack}
+            # Check subprocess settings
+            assert kwargs['check'] is True
+            assert kwargs['capture_output'] is True
+            assert kwargs['text'] is True
             
-            # This will be implemented once we have the server and tool
-            pass
-
+            # Check result parsing
+            assert result == {"test": "result"}
+    
     @pytest.mark.asyncio
-    async def test_stack_template_resource(self):
-        """Test that the stack template resource returns the correct template."""
-        # Mock implementation until we have the real server
-        with patch("sceptre.context.SceptreContext") as mock_context_class:
-            mock_context = Mock()
-            mock_context_class.return_value = mock_context
-            mock_stack = Mock()
-            mock_stack.template = {"Resources": {"MyResource": {"Type": "AWS::S3::Bucket"}}}
-            mock_context.stacks = {"stack1": mock_stack}
-            
-            # This will be implemented once we have the server and resource
-            pass
-
+    async def test_get_template(self, server):
+        """Test that get_template calls run_sceptre with correct args."""
+        with patch.object(server, 'run_sceptre') as mock_run_sceptre:
+            await server.get_template("dev/network/vpc.yaml")
+            mock_run_sceptre.assert_called_once_with(
+                "dump template", 
+                ["dev/network/vpc.yaml", "--output", "json"]
+            )
+    
     @pytest.mark.asyncio
-    async def test_stack_outputs_resource(self):
-        """Test that the stack outputs resource returns the correct outputs."""
-        # Mock implementation until we have the real server
-        with patch("sceptre.context.SceptreContext") as mock_context_class:
-            mock_context = Mock()
-            mock_context_class.return_value = mock_context
-            mock_stack = Mock()
-            mock_stack.get_outputs.return_value = {"Output1": "Value1", "Output2": "Value2"}
-            mock_context.stacks = {"stack1": mock_stack}
+    async def test_get_outputs(self, server):
+        """Test that get_outputs calls run_sceptre with correct args."""
+        with patch.object(server, 'run_sceptre') as mock_run_sceptre:
+            await server.get_outputs("dev/network/vpc.yaml")
+            mock_run_sceptre.assert_called_once_with(
+                "list outputs", 
+                ["dev/network/vpc.yaml", "--output", "json"]
+            )
+    
+    @pytest.mark.asyncio
+    async def test_cli_execution_error(self, server):
+        """Test handling of CLI execution errors."""
+        # Mock subprocess.run to raise CalledProcessError
+        error = subprocess.CalledProcessError(1, ["sceptre"], stderr="Error message")
+        
+        with patch('subprocess.run', side_effect=error) as mock_run:
+            result = await server.run_sceptre("invalid command")
             
-            # This will be implemented once we have the server and resource
-            pass
+            # Check error was properly caught and formatted
+            assert "error" in result
+            assert "Error message" in result["error"]
+    
+    @pytest.mark.asyncio
+    async def test_json_parse_error(self, server):
+        """Test handling of JSON parse errors."""
+        # Mock subprocess.run to return invalid JSON
+        mock_process = MagicMock()
+        mock_process.stdout = 'Not valid JSON'
+        
+        with patch('subprocess.run', return_value=mock_process) as mock_run:
+            result = await server.run_sceptre("list stacks", ["--output", "json"])
+            
+            # Check result is raw output when JSON parsing fails
+            assert result == "Not valid JSON"
