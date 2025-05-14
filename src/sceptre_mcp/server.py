@@ -19,8 +19,23 @@ class SceptreMCPServer:
         self.server = FastMCP("SceptreMCP")
         
         # Define and register the tools and resources directly in __init__
-        
-        @self.server.tool(name="run_sceptre", description="Run any Sceptre command")
+
+        @self.server.tool(name="sceptre_project_path", description="Set sceptre project path")
+        async def help(path: Optional[str] = None) -> Any:
+            self.project_path = path
+            return self.project_path
+ 
+        @self.server.tool(name="sceptre_help", description="Sceptre Help for any command or CLI as a whole")
+        async def help(command: Optional[str] = None) -> Any:
+            if command:
+                return await run_sceptre(command, ["--help"])
+            return await run_sceptre("--help")
+
+        @self.server.tool(name="sceptre_launch", description="Launch a stack. DANGER! THere be dragons here, use at your own risk!")
+        async def launch(args: Optional[List[str]] = None) -> Any:
+            return await run_sceptre("launch", args)
+           
+        @self.server.tool(name="sceptre", description="Run any Sceptre command except (launch)")
         async def run_sceptre(command: str, args: Optional[List[str]] = None) -> Any:
             """
             Run any Sceptre CLI command.
@@ -29,10 +44,14 @@ class SceptreMCPServer:
                 command: The Sceptre command (e.g., "list stacks")
                 args: Optional list of additional arguments
             """
+
+            if "launch" in command:
+                return "Launch is a dangerous operation that is not generically supported.  Use the explicit launch tool with your own trust policy"
+
             args = args or []
             env = os.environ.copy()
             env["SCEPTRE_PROJECT_PATH"] = self.project_path
-            
+
             # Build command
             full_cmd = ["sceptre"] + command.split() + args
             
